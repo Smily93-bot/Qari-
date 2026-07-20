@@ -16,7 +16,7 @@ jobs:
           gradle-version: '8.7'
       - name: Write project files
         run: |
-          mkdir -p app/src/main/assets app/src/main/java/com/haya/qari app/src/main/res/drawable
+          mkdir -p app/src/main/assets app/src/main/java/com/haya/qari app/src/main/res/drawable app/src/main/res/xml
           cat > settings.gradle << 'SETEOF'
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositories { google(); mavenCentral() } }
@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.haya.qari'
                   minSdk 24
                   targetSdk 34
-                  versionCode 6
-                  versionName '2.3'
+                  versionCode 7
+                  versionName '2.4'
               }
               signingConfigs {
                   release {
@@ -61,6 +61,9 @@ jobs:
                   targetCompatibility JavaVersion.VERSION_17
               }
           }
+          dependencies {
+              implementation 'androidx.core:core:1.13.1'
+          }
           APPEOF
           cat > app/src/main/AndroidManifest.xml << 'MANEOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -78,6 +81,15 @@ jobs:
                       </intent-filter>
                   </activity>
                   <service android:name=".KeepAliveService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="com.haya.qari.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
               </application>
           </manifest>
           MANEOF
@@ -85,20 +97,28 @@ jobs:
           package com.haya.qari;
           
           import android.app.Activity;
+          import android.app.AlertDialog;
           import android.content.Intent;
           import android.net.Uri;
           import android.os.Build;
           import android.os.Bundle;
+          import android.provider.MediaStore;
           import android.webkit.JavascriptInterface;
+          import android.webkit.JsPromptResult;
+          import android.webkit.JsResult;
           import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
+          import android.widget.EditText;
+          import androidx.core.content.FileProvider;
+          import java.io.File;
           
           public class MainActivity extends Activity {
               public static MainActivity active;
               private WebView web;
               private ValueCallback<Uri[]> filePathCallback;
+              private Uri pendingCaptureUri;
               private static final int FILE_REQ = 11;
           
               @Override
@@ -122,12 +142,75 @@ jobs:
                       public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
                           if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                           filePathCallback = cb;
+          
+                          if (p.isCaptureEnabled()) {
+                              // The <input capture> attribute was used (our camera button):
+                              // launch the camera directly and save full resolution to a
+                              // file this app owns, via FileProvider.
+                              try {
+                                  File dir = new File(getCacheDir(), "captures");
+                                  dir.mkdirs();
+                                  File f = File.createTempFile("qari_", ".jpg", dir);
+                                  pendingCaptureUri = FileProvider.getUriForFile(
+                                          MainActivity.this, getPackageName() + ".fileprovider", f);
+                                  Intent cam = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                                  cam.putExtra(MediaStore.EXTRA_OUTPUT, pendingCaptureUri);
+                                  cam.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                                  startActivityForResult(Intent.createChooser(cam, "Take photo"), FILE_REQ);
+                                  return true;
+                              } catch (Exception e) {
+                                  pendingCaptureUri = null;
+                                  filePathCallback.onReceiveValue(null);
+                                  filePathCallback = null;
+                                  return false;
+                              }
+                          }
+          
                           Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                           i.addCategory(Intent.CATEGORY_OPENABLE);
                           i.setType("*/*");
                           i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                           try { startActivityForResult(Intent.createChooser(i, "Open book"), FILE_REQ); }
                           catch (Exception e) { filePathCallback = null; return false; }
+                          return true;
+                      }
+          
+                      // A plain WebView shows no UI at all for alert()/confirm()/prompt()
+                      // unless these are implemented — without them, every confirm()
+                      // (like "Is this page Arabic only?") silently returns false.
+                      @Override
+                      public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                          new AlertDialog.Builder(MainActivity.this)
+                                  .setMessage(message)
+                                  .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
+                                  .setOnCancelListener(d -> result.confirm())
+                                  .setCancelable(false)
+                                  .show();
+                          return true;
+                      }
+          
+                      @Override
+                      public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                          new AlertDialog.Builder(MainActivity.this)
+                                  .setMessage(message)
+                                  .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm())
+                                  .setNegativeButton(android.R.string.cancel, (d, w) -> result.cancel())
+                                  .setOnCancelListener(d -> result.cancel())
+                                  .show();
+                          return true;
+                      }
+          
+                      @Override
+                      public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+                          final EditText input = new EditText(MainActivity.this);
+                          if (defaultValue != null) input.setText(defaultValue);
+                          new AlertDialog.Builder(MainActivity.this)
+                                  .setMessage(message)
+                                  .setView(input)
+                                  .setPositiveButton(android.R.string.ok, (d, w) -> result.confirm(input.getText().toString()))
+                                  .setNegativeButton(android.R.string.cancel, (d, w) -> result.cancel())
+                                  .setOnCancelListener(d -> result.cancel())
+                                  .show();
                           return true;
                       }
                   });
@@ -144,7 +227,10 @@ jobs:
               protected void onActivityResult(int req, int res, Intent data) {
                   if (req == FILE_REQ && filePathCallback != null) {
                       Uri[] out = null;
-                      if (res == RESULT_OK && data != null) {
+                      if (pendingCaptureUri != null) {
+                          if (res == RESULT_OK) out = new Uri[]{ pendingCaptureUri };
+                          pendingCaptureUri = null;
+                      } else if (res == RESULT_OK && data != null) {
                           if (data.getClipData() != null) {
                               int n = data.getClipData().getItemCount();
                               out = new Uri[n];
@@ -550,6 +636,12 @@ jobs:
             <path android:pathData="M61,66 C68,63 77,63 85,66" android:strokeColor="#B8B0A0" android:strokeWidth="1.6" android:strokeLineCap="round"/>
           </vector>
           ICONEOF
+          cat > app/src/main/res/xml/file_paths.xml << 'PATHSEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <cache-path name="captures" path="captures/" />
+          </paths>
+          PATHSEOF
       - name: Build
         run: gradle assembleRelease
       - uses: actions/upload-artifact@v4
