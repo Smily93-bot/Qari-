@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.haya.qari'
                   minSdk 24
                   targetSdk 34
-                  versionCode 13
-                  versionName '3.0'
+                  versionCode 14
+                  versionName '3.1'
               }
               signingConfigs {
                   release {
@@ -525,7 +525,13 @@ jobs:
                   if ("qari.TOGGLE".equals(action)) { if (playing) pause(); else play(); return START_STICKY; }
                   if ("qari.NEXT".equals(action)) { seek(idx + 1); return START_STICKY; }
                   if ("qari.PREV".equals(action)) { seek(idx - 1); return START_STICKY; }
-                  // "qari.FG" or a plain start: promote to foreground
+                  if ("qari.INIT".equals(action)) {
+                      // Just opening the app pre-warms this service (so the TTS engine
+                      // is ready by the time Play is pressed). This must NOT show a
+                      // notification — only an actual play request should.
+                      return START_STICKY;
+                  }
+                  // "qari.FG": an actual play request — promote to foreground
                   Notification n = buildNotif();
                   if (Build.VERSION.SDK_INT >= 29) {
                       startForeground(1, n, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
