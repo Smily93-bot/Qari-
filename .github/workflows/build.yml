@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.haya.qari'
                   minSdk 24
                   targetSdk 34
-                  versionCode 12
-                  versionName '2.9'
+                  versionCode 13
+                  versionName '3.0'
               }
               signingConfigs {
                   release {
@@ -538,7 +538,12 @@ jobs:
           
               @Override
               public void onTaskRemoved(Intent rootIntent) {
-                  // App swiped away from Recents: keep reading.
+                  // App swiped away from Recents: keep reading if a book is actively
+                  // playing. If it was just sitting paused, there's nothing to
+                  // continue — clean up fully instead of leaving a ghost notification.
+                  if (!playing) {
+                      dismiss();
+                  }
               }
           
               @Override
