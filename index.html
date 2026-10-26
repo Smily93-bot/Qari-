@@ -1,0 +1,1662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Qari — PDF Audiobook Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Amiri:wght@400;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root {
+    --paper: #F6F4EF;
+    --ink: #23302B;
+    --ink-soft: #5C6B64;
+    --leather: #1E5C4F;
+    --leather-deep: #14453B;
+    --gilt: #B8933E;
+    --gilt-soft: rgba(184, 147, 62, 0.20);
+    --line: #E3DFD5;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Source Serif 4', Georgia, serif;
+    display: flex;
+    flex-direction: column;
+  }
+  .diamond-home {
+    position: fixed; inset: auto 14px 14px auto; z-index: 50;
+    background: white; color: white; text-decoration: none;
+    font-family: -apple-system, system-ui, sans-serif; font-size: 13px; font-weight: 700;
+    padding: 5px; width: 48px; height: 48px; border-radius: 15px; box-shadow: 0 8px 24px rgba(5,38,89,.28);
+  }
+  .diamond-home img { width: 38px; height: 38px; border-radius: 11px; display: block;
+  }
+
+  /* ---------- Header: book spine ---------- */
+  header {
+    background: var(--leather);
+    color: #F2EDDF;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 3px solid var(--gilt);
+    flex-shrink: 0;
+  }
+  header .mark {
+    width: 34px; height: 34px;
+    border: 1.5px solid var(--gilt);
+    border-radius: 8px;
+    display: grid; place-items: center;
+    font-family: 'Amiri', serif;
+    font-size: 20px;
+    color: var(--gilt);
+    line-height: 1;
+    padding-top: 3px;
+  }
+  header h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex: 1;
+  }
+  header h1 small {
+    display: block;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: rgba(242, 237, 223, 0.65);
+    margin-top: 2px;
+  }
+  #newBookBtn, #exportBtn {
+    background: transparent;
+    border: 1px solid rgba(242, 237, 223, 0.4);
+    color: #F2EDDF;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 12.5px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    display: none;
+  }
+
+  /* ---------- Empty state ---------- */
+  #emptyState {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    text-align: center;
+    gap: 18px;
+  }
+  #emptyState .glyph { font-size: 54px; line-height: 1; }
+  #emptyState h2 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 26px;
+    font-weight: 700;
+    max-width: 22ch;
+  }
+  #emptyState p {
+    color: var(--ink-soft);
+    font-size: 15px;
+    max-width: 36ch;
+    line-height: 1.55;
+  }
+  #openBtn {
+    background: var(--leather);
+    color: #F2EDDF;
+    border: none;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 15px 34px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(30, 92, 79, 0.30);
+  }
+  #openBtn:active { transform: scale(0.97); }
+  #emptyState .hint {
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--ink-soft);
+    max-width: 40ch;
+    line-height: 1.5;
+  }
+
+  /* ---------- Loading ---------- */
+  #loading {
+    flex: 1;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 24px;
+    text-align: center;
+  }
+  #loading .bar {
+    width: min(260px, 70vw);
+    height: 6px;
+    background: var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  #loading .bar > div {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--leather), var(--gilt));
+    transition: width 0.2s;
+  }
+  #loading p { color: var(--ink-soft); font-size: 14px; max-width: 34ch; line-height: 1.6; }
+
+  /* ---------- Reader ---------- */
+  #reader {
+    flex: 1;
+    display: none;
+    overflow-y: auto;
+    padding: 22px 20px 210px;
+    scroll-behavior: smooth;
+  }
+  #reader .book-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  #textPane {
+    max-width: 640px;
+    margin: 0 auto;
+    font-size: 18.5px;
+    line-height: 1.85;
+  }
+  #textPane.rtl {
+    direction: rtl;
+    font-family: 'Amiri', 'Source Serif 4', serif;
+    font-size: 21px;
+    line-height: 2.05;
+  }
+  .page-marker {
+    display: block;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--gilt);
+    margin: 26px 0 10px;
+    user-select: none;
+  }
+  .s {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.25s;
+    padding: 1px 2px;
+  }
+  .s.spoken { color: var(--ink-soft); }
+  .s.now {
+    background: var(--gilt-soft);
+    box-shadow: 0 0 0 4px var(--gilt-soft);
+    color: var(--ink);
+  }
+
+  /* ---------- Player ---------- */
+  #player {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--leather-deep);
+    color: #F2EDDF;
+    padding: 10px 18px calc(14px + env(safe-area-inset-bottom));
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 2px solid var(--gilt);
+    box-shadow: 0 -6px 24px rgba(20, 69, 59, 0.35);
+  }
+  #ocrChip {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 11.5px;
+    color: rgba(242, 237, 223, 0.85);
+  }
+  #ocrChip .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--gilt);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+  #progressWrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 11.5px;
+    color: rgba(242, 237, 223, 0.75);
+  }
+  #progressTrack {
+    flex: 1;
+    height: 5px;
+    background: rgba(242, 237, 223, 0.2);
+    border-radius: 999px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  #progressFill {
+    height: 100%;
+    width: 0%;
+    background: var(--gilt);
+    border-radius: 999px;
+    transition: width 0.3s;
+  }
+  #controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 26px;
+  }
+  .ctl {
+    background: transparent;
+    border: none;
+    color: #F2EDDF;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .ctl svg { width: 26px; height: 26px; fill: currentColor; }
+  #playBtn {
+    width: 62px; height: 62px;
+    border-radius: 50%;
+    background: var(--gilt);
+    border: none;
+    color: var(--leather-deep);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 4px 16px rgba(184, 147, 62, 0.45);
+    flex-shrink: 0;
+  }
+  #playBtn:active { transform: scale(0.95); }
+  #playBtn svg { width: 30px; height: 30px; fill: currentColor; }
+  #settingsRow { display: flex; gap: 10px; align-items: center; }
+  .voice-button { border:1px solid currentColor; border-radius:8px; padding:8px 12px; background:transparent; color:inherit; font:inherit; cursor:pointer; min-height:42px; }
+  #voiceSettingsBtn { font:14px system-ui,sans-serif; }
+  #voiceModeRow { display:flex; gap:8px; align-items:center; font:14px system-ui,sans-serif; }
+  #modeSel { flex:1; min-width:0; background:var(--leather-deep); color:#F2EDDF; padding:8px; border:1px solid #91aaa2; border-radius:8px; font:inherit; }
+  #narrationStatus { font:14px/1.4 system-ui,sans-serif; min-height:20px; color:#F2EDDF; }
+  #pageTools { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font:14px/1.4 system-ui,sans-serif; }
+  #pageTools label { display:flex; align-items:center; gap:8px; flex:1; }
+  #pageTools input { width:20px; height:20px; flex-shrink:0; }
+  .scan-note { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 12px; margin-bottom:10px; border:1px solid var(--line); border-radius:8px; font:14px/1.5 system-ui,sans-serif; }
+  .scan-note[hidden] { display:none; }
+  .s.skipped { opacity:.55; }
+  #reader { padding-bottom:350px; }
+  #player { z-index:20; }
+  #voiceDialog { width:min(94vw,480px); max-height:90dvh; overflow:auto; margin:auto; border:1px solid var(--gilt); border-radius:16px; background:var(--paper); color:var(--ink); padding:22px; font:16px/1.55 system-ui,sans-serif; }
+  #voiceDialog::backdrop { background:rgba(10,25,20,.65); }
+  #voiceDialog h2 { font:700 25px 'Fraunces',serif; margin-bottom:12px; }
+  #voiceDialog p { margin:10px 0; }
+  #voiceDialog label { display:block; margin-top:14px; }
+  #voiceDialog input[type=password], #voiceDialog select { width:100%; min-height:44px; font:16px system-ui,sans-serif; border:1px solid #7d9186; border-radius:8px; padding:10px; margin-top:6px; background:white; color:var(--ink); }
+  #voiceDialog .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  #voiceDialog .primary { background:var(--leather); color:white; border-color:var(--leather); }
+  #voiceDialog .small { font-size:14px; color:var(--ink-soft); }
+  #voiceDialog .check { display:flex; gap:10px; align-items:flex-start; font-size:14px; }
+  #voiceDialog .check input { width:20px; height:20px; flex-shrink:0; margin-top:2px; }
+  #voiceDialog a { color:var(--leather); }
+  #previewStatus { font-size:14px; min-height:22px; }
+  @media(max-width:480px) { header { flex-wrap:wrap; gap:8px; } header h1 { min-width:120px; } #voiceSettingsBtn { padding:7px 9px; } }
+  #settingsRow select {
+    flex: 1;
+    min-width: 0;
+    background: rgba(242, 237, 223, 0.12);
+    color: #F2EDDF;
+    border: 1px solid rgba(242, 237, 223, 0.25);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 13px;
+    appearance: none;
+  }
+  #settingsRow select option { color: #23302B; }
+
+  /* ---------- v15 features ---------- */
+  .hdr-btn { background:transparent; border:1px solid rgba(242,237,223,.4); color:#F2EDDF; font:600 13px -apple-system,system-ui,sans-serif;
+    min-height:40px; min-width:40px; padding:7px 12px; border-radius:999px; cursor:pointer; }
+  #menuBtn { font-size:18px; padding:4px 12px; }
+  @media(max-width:400px){ #libraryBtn span { display:none; } }
+  .empty-row { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; font:14px system-ui,sans-serif; }
+  .empty-row .voice-button { color:var(--leather); border-color:var(--leather); }
+  /* Compact player: progress, one control row, one icon row. Settings live in the ⚙️ panel. */
+  #player { gap:8px; padding-top:8px; }
+  #controls { justify-content:space-between; gap:6px; width:100%; max-width:420px; margin:0 auto; }
+  #playBtn { width:58px; height:58px; }
+  .chip { min-width:54px; height:40px; padding:0 10px; border-radius:999px; border:1px solid rgba(242,237,223,.3);
+    background:rgba(242,237,223,.08); color:#F2EDDF; font:600 14px system-ui,sans-serif; display:flex; align-items:center;
+    justify-content:center; gap:4px; white-space:nowrap; cursor:pointer; flex-shrink:0; }
+  .chip.on { background:var(--gilt); color:var(--leather-deep); border-color:var(--gilt); }
+  .chip b { font-weight:600; font-variant-numeric:tabular-nums; }
+  .chip b:empty { display:none; }
+  #quickRow { display:flex; justify-content:space-between; gap:4px; }
+  .quick { flex:1; min-width:0; min-height:44px; padding:4px 2px; background:transparent; border:none; color:rgba(242,237,223,.9);
+    border-radius:10px; font:11px/1.2 system-ui,sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; cursor:pointer; }
+  .quick:active, .quick:focus-visible { background:rgba(242,237,223,.1); }
+  .quick span { font-size:18px; line-height:1; }
+  .quick i { font-style:normal; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #narrationStatus:empty { display:none; }
+  #narrationStatus { font-size:13px; opacity:.9; }
+  /* The player's settings, shown inside the ⚙️ Voice panel */
+  .sheet #settingsRow, .sheet #voiceModeRow { flex-wrap:wrap; }
+  .sheet #settingsRow select, .sheet #modeSel { background:white; color:var(--ink); border:1px solid #7d9186; min-height:44px; font-size:15px; flex:1 1 100%; }
+  .sheet #pageTools { flex-direction:column; align-items:stretch; }
+  .sheet .voice-button { color:var(--leather); border-color:var(--leather); }
+  #liveCaption { font:15px/1.5 system-ui,sans-serif; background:rgba(242,237,223,.1); border-radius:8px; padding:8px 10px; max-height:7.5em; overflow:auto; }
+  .s.hl { background:rgba(255,214,90,.45); border-bottom:2px solid #d9a400; }
+  .s.mark::before { content:'🔖'; font-size:.75em; margin-inline-end:2px; }
+
+  dialog.sheet { width:min(96vw,560px); max-height:88dvh; overflow:auto; margin:auto; border:1px solid var(--gilt); border-radius:16px;
+    background:var(--paper); color:var(--ink); padding:18px; font:16px/1.55 system-ui,sans-serif; }
+  dialog.sheet::backdrop { background:rgba(10,25,20,.6); }
+  .sheet h2 { font:700 22px 'Fraunces',serif; margin-bottom:6px; padding-inline-end:40px; }
+  .sheet .x { position:absolute; inset-inline-end:12px; top:12px; width:40px; height:40px; border-radius:50%; border:1px solid var(--line); background:white; font-size:18px; cursor:pointer; color:var(--ink); }
+  .sheet .sub { color:var(--ink-soft); font-size:14px; margin:4px 0 12px; }
+  .sheet .btns { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  .sheet .btn { min-height:44px; padding:9px 14px; border-radius:10px; border:1px solid var(--leather); background:white; color:var(--leather); font:600 14.5px system-ui,sans-serif; cursor:pointer; }
+  .sheet .btn.primary { background:var(--leather); color:white; }
+  .sheet .btn:disabled { opacity:.5; }
+  .sheet .menu-list { display:grid; gap:6px; margin-top:8px; }
+  .sheet .menu-list button { text-align:start; min-height:50px; padding:10px 14px; border:1px solid var(--line); border-radius:12px; background:white; color:var(--ink); font:15px system-ui,sans-serif; cursor:pointer; display:flex; gap:12px; align-items:center; }
+  .sheet .menu-list button small { display:block; color:var(--ink-soft); font-size:12.5px; }
+  .sheet .menu-list .ico { font-size:22px; width:28px; text-align:center; flex-shrink:0; }
+  .sheet .quote { font-family:'Source Serif 4',Georgia,serif; font-size:18px; line-height:1.7; padding:12px 14px; background:white; border:1px solid var(--line); border-radius:10px; }
+  .sheet .quote[dir=rtl] { font-family:'Amiri',serif; font-size:21px; }
+  .sheet .trans { margin-top:10px; padding:10px 14px; border-inline-start:3px solid var(--gilt); background:rgba(184,147,62,.08); border-radius:6px; min-height:1.5em; }
+  .sheet .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .sheet .chip { border:1px solid var(--line); background:white; border-radius:999px; padding:6px 12px; font-size:15px; cursor:pointer; color:var(--ink); min-height:36px; }
+  .sheet .chip.on { background:var(--leather); color:white; border-color:var(--leather); }
+  .sheet .word-card { margin-top:10px; padding:12px; border:1px solid var(--gilt); border-radius:10px; background:white; }
+  .sheet .row { display:flex; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line); }
+  .sheet .row .grow { flex:1; min-width:0; }
+  .sheet .row .t { font-weight:600; }
+  .sheet .row .m { color:var(--ink-soft); font-size:13.5px; overflow:hidden; text-overflow:ellipsis; }
+  .sheet .icon-btn { width:42px; height:42px; flex-shrink:0; border-radius:10px; border:1px solid var(--line); background:white; cursor:pointer; font-size:17px; }
+  .sheet label.opt { display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--line); font-size:15px; }
+  .sheet label.opt input[type=checkbox] { width:22px; height:22px; flex-shrink:0; margin-top:2px; }
+  .sheet label.opt small { display:block; color:var(--ink-soft); font-size:13px; }
+  .sheet select, .sheet input[type=search], .sheet input[type=text] { width:100%; min-height:44px; font:16px system-ui,sans-serif; border:1px solid #7d9186; border-radius:8px; padding:9px 10px; background:white; color:var(--ink); }
+  .sheet .bar { height:8px; background:var(--line); border-radius:999px; overflow:hidden; margin:10px 0; }
+  .sheet .bar div { height:100%; width:0; background:linear-gradient(90deg,var(--leather),var(--gilt)); transition:width .3s; }
+  .sheet .result { display:flex; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); }
+  .sheet .result img, .sheet .result .nocover { width:64px; height:96px; object-fit:cover; border-radius:4px; background:var(--line); flex-shrink:0; display:grid; place-items:center; font-size:26px; }
+  .sheet .result .btns { margin:8px 0 0; }
+  .sheet .result .btn { min-height:38px; padding:6px 10px; font-size:13.5px; }
+  .sheet .tag { display:inline-block; font-size:11.5px; padding:2px 8px; border-radius:999px; background:rgba(30,92,79,.1); color:var(--leather); margin-top:4px; }
+  .sheet .tag.free { background:#e3f3e6; color:#1d6b31; }
+  .sheet .flash { text-align:center; padding:26px 12px; border:1px solid var(--line); border-radius:14px; background:white; }
+  .sheet .flash .big { font:700 30px 'Fraunces',serif; }
+  .sheet .notice { font-size:13.5px; color:var(--ink-soft); background:rgba(184,147,62,.1); border-radius:8px; padding:8px 10px; margin:8px 0; }
+  .sheet .err { color:#8A3B2E; }
+  .sheet ul.recap { padding-inline-start:4px; list-style:none; }
+  .sheet ul.recap li { margin:6px 0; }
+
+  #toast {
+    position: fixed;
+    top: 74px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: var(--paper);
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-family: -apple-system, system-ui, sans-serif;
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 50;
+    max-width: 86vw;
+    text-align: center;
+    line-height: 1.45;
+  }
+  #toast.show { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #reader { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<a id="homeLink" class="diamond-home" href="https://blue-diamond-apps.hayaalayyan93.chatgpt.site/" aria-label="العودة إلى منصة الماسة الزرقاء" title="الماسة الزرقاء"><img src="icon-192.png" alt=""></a>
+
+<header>
+  <div class="mark">ق</div>
+  <h1>Qari<small>PDF · EPUB → Audiobook · v15.1</small></h1>
+  <button class="hdr-btn" id="libraryBtn" aria-label="My library">📚 <span>Library</span></button>
+  <button class="hdr-btn" id="menuBtn" aria-label="Menu">☰</button>
+  <div hidden>
+    <button class="voice-button" id="voiceSettingsBtn">Natural voice</button>
+    <button id="exportBtn">Export text</button>
+    <button id="newBookBtn">New book</button>
+  </div>
+</header>
+
+<div id="emptyState">
+  <div class="glyph">📖</div>
+  <h2>Turn any book into a listening session</h2>
+  <p>Open a book — PDF, EPUB, or text file — and Qari reads it aloud, lighting up each sentence as it goes. Tap any sentence for options. Works in Arabic, English, Spanish, French and German.</p>
+  <button id="openBtn">Open a book</button>
+  <div class="empty-row">
+    <button class="voice-button" id="emptyFindBtn">🔍 Find a book · ابحث عن كتاب</button>
+    <button class="voice-button" id="emptyLibraryBtn">📚 My library · مكتبتي</button>
+  </div>
+  <span class="hint">Your last book and reading position are saved on this device. Scanned books work too: Qari recognizes text on your phone (first time downloads ~15 MB of recognition data). Device voice reads locally. Natural voice sends book passages to Google Gemini to create audio.</span>
+  <input type="file" id="fileInput" accept=".pdf,application/pdf,.txt,text/plain,.epub,application/epub+zip" multiple hidden>
+</div>
+
+<div id="loading">
+  <div class="glyph" style="font-size:40px">🕯️</div>
+  <p id="loadingMsg">Opening your book…</p>
+  <div class="bar"><div id="loadingFill"></div></div>
+</div>
+
+<div id="reader">
+  <div class="book-title" id="bookTitle"></div>
+  <div id="textPane"></div>
+</div>
+
+<div id="player">
+  <div id="ocrChip"><span class="dot"></span><span id="ocrChipText"></span></div>
+  <div id="progressWrap">
+    <span id="posLabel">0%</span>
+    <div id="progressTrack"><div id="progressFill"></div></div>
+    <span id="pageLabel"></span>
+  </div>
+  <div id="controls">
+    <button class="chip" id="speedBtn" aria-label="Reading speed">1×</button>
+    <button class="ctl" id="backBtn" aria-label="Back one sentence">
+      <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6L11 18zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+    </button>
+    <button id="playBtn" aria-label="Play">
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pauseIcon" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+    <button class="ctl" id="fwdBtn" aria-label="Forward one sentence">
+      <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+    </button>
+    <button class="chip" id="qSleep" aria-label="Sleep timer"><span>🌙</span><b id="sleepLabel"></b></button>
+  </div>
+  <div id="quickRow">
+    <button class="quick" id="qBookmark" aria-label="Bookmark this place"><span>🔖</span><i>Mark</i></button>
+    <button class="quick" id="qHighlight" aria-label="Highlight this sentence"><span>🖍️</span><i>Highlight</i></button>
+    <button class="quick" id="qRecap" aria-label="Recap"><span>📝</span><i>Recap</i></button>
+    <button class="quick" id="qVoice" aria-label="Voice and reading settings"><span>⚙️</span><i>Voice</i></button>
+    <button class="quick" id="qMore" aria-label="More"><span>☰</span><i>More</i></button>
+  </div>
+  <p id="liveCaption" hidden></p>
+  <p id="narrationStatus" role="status" aria-live="polite"></p>
+  <!-- Moved into the ⚙️ Voice panel when it opens -->
+  <div id="playerSettings" hidden>
+  <div id="settingsRow">
+    <select id="rateSel" aria-label="Reading speed">
+      <option value="0.75">0.75×</option>
+      <option value="0.9">0.9×</option>
+      <option value="1" selected>1× speed</option>
+      <option value="1.15">1.15×</option>
+      <option value="1.3">1.3×</option>
+      <option value="1.5">1.5×</option>
+      <option value="1.75">1.75×</option>
+      <option value="2">2×</option>
+    </select>
+    <select id="voiceSel" aria-label="Voice"></select>
+  </div>
+  <div id="voiceModeRow">
+    <select id="modeSel" aria-label="Narration mode"><option value="natural">Natural voice · صوت طبيعي</option><option value="device">Device voice · صوت الجهاز</option></select>
+    <button class="voice-button" id="playerVoiceSettings">Voice settings</button>
+  </div>
+  <div id="pageTools">
+    <button class="voice-button" id="skipPageBtn">Skip page · تخطّي الصفحة</button>
+    <label><input type="checkbox" id="smartSkip" checked><span>Skip unclear scans · تخطّي النص غير الواضح</span></label>
+  </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<dialog id="voiceDialog" aria-labelledby="voiceDialogTitle">
+  <h2 id="voiceDialogTitle">Natural audiobook voice</h2>
+  <p>Choose a narrator and hear a short sample before listening.</p>
+  <p lang="ar" dir="rtl">اختاري الصوت وجرّبيه للاستماع إلى الكتب بإلقاء طبيعي ووقفات مريحة.</p>
+  <label for="narratorSel">Narrator · الراوي</label>
+  <select id="narratorSel">
+    <option value="Sulafat">Sulafat · Warm / دافئ</option>
+    <option value="Vindemiatrix">Vindemiatrix · Gentle / رقيق</option>
+    <option value="Achernar">Achernar · Soft / ناعم</option>
+    <option value="Despina">Despina · Smooth / سلس</option>
+    <option value="Aoede">Aoede · Breezy / خفيف</option>
+    <option value="Schedar">Schedar · Even / هادئ</option>
+    <option value="Gacrux">Gacrux · Mature / ناضج</option>
+    <option value="Algieba">Algieba · Smooth male / سلس (رجالي)</option>
+    <option value="Iapetus">Iapetus · Clear male / واضح (رجالي)</option>
+    <option value="Charon">Charon · Informative / إخباري</option>
+    <option value="Sadaltager">Sadaltager · Knowledgeable / معلّم</option>
+  </select>
+  <label for="previewLang">Preview language · لغة التجربة</label>
+  <select id="previewLang"><option value="ar">العربية</option><option value="en">English</option><option value="es">Español</option></select>
+  <label for="geminiVoiceKey">Your Gemini key · مفتاح Gemini</label>
+  <input id="geminiVoiceKey" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Gemini key">
+  <label class="check"><input id="rememberVoiceKey" type="checkbox"><span>Remember the key on this device · حفظ المفتاح على هذا الجهاز</span></label>
+  <p class="small">Natural voice needs internet. Book passages are sent to Google Gemini to create audio. Google’s usage limits and charges may apply. Your key is used directly from this device; leave “Remember” off on shared devices.</p>
+  <p class="small" lang="ar" dir="rtl">الصوت الطبيعي يحتاج إنترنت ومفتاح Gemini. يُرسل نص المقطع إلى Google لإنشاء الصوت، وقد تنطبق حدود الاستخدام أو رسوم. صوت الجهاز متاح دون مفتاح.</p>
+  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a Gemini key</a>
+  <div class="actions">
+    <button class="voice-button" id="previewVoiceBtn">Preview voice · تجربة</button>
+    <button class="voice-button primary" id="saveVoiceBtn">Use this voice · استخدام</button>
+    <button class="voice-button" id="deviceVoiceBtn">Use device voice</button>
+    <button class="voice-button" id="closeVoiceBtn">Close</button>
+    <button class="voice-button" id="forgetVoiceBtn">Forget key</button>
+  </div>
+  <p id="previewStatus" role="status" aria-live="polite"></p>
+</dialog>
+
+<script src="natural-voice.js"></script>
+<script src="book-storage.js"></script>
+<script src="qari-ai.js"></script>
+<script>
+// Feature hooks, filled in by qari-features.js.
+const Q = window.QariHooks = window.QariHooks || {};
+const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+
+// When opened from a downloaded file (file:// or content://), cross-origin
+// workers are blocked. Fetch the worker and serve it as a same-origin blob.
+async function ensureWorker() {
+  if (ensureWorker.done) return;
+  try {
+    const code = await fetch(PDFJS_WORKER_URL).then(r => r.text());
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+  } catch (e) {
+    console.warn('Worker blob setup failed, using direct URL', e);
+  }
+  ensureWorker.done = true;
+}
+
+const $ = id => document.getElementById(id);
+const synth = ('speechSynthesis' in window && window.speechSynthesis) ? window.speechSynthesis : null;
+
+let sentences = [];        // { text, pageNum, el }
+let current = 0;
+let playing = false;
+let voices = [];
+let bookIsArabic = false;
+let bookLang = 'en';       // 'ar' | 'en' | 'es' | 'fr' | 'de'
+let langDecided = false;
+let utter = null;          // keep reference (Chrome GC bug)
+let ocrCancelled = false;
+const readerPages = new Map();
+let waitingForPage = false;
+const bookStorage = new QariBookStorage();
+let activeBook = null, restoringBook = false, processingId = 0, savedWarning = false;
+function prepareBook(file) {
+  activeBook={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),name:file.name,file,started:false,complete:false,processedThrough:0};
+}
+function bookProgress() {
+  return {name:activeBook?.name || $('bookTitle').textContent,currentSentence:current,
+    currentSeconds:naturalRange ? naturalAudio.currentTime || 0 : 0,arabic:bookIsArabic,lang:bookLang,
+    complete:activeBook?.complete || false,processedThrough:activeBook?.processedThrough || 0,
+    total:sentences.length,where:sentences[current]?.label || (sentences[current] ? sentences[current].pageNum : 0)};
+}
+function storageProblem() { if (!savedWarning) { savedWarning=true; toast('This browser could not save the book on this device.',5000); } }
+function ensureBookSaved(book) {
+  if (!book || restoringBook || book.started) return;
+  book.started=true;
+  bookStorage.start({id:book.id,...bookProgress()},book.file).catch(storageProblem);
+}
+function savePageCheckpoint(page) {
+  const book=activeBook;
+  if(!book || restoringBook)return;
+  ensureBookSaved(book);
+  book.processedThrough=Math.max(book.processedThrough,page.pageNum);
+  bookStorage.page(book.id,{pageNum:page.pageNum,text:page.text,label:page.label,
+    unclear:page.unclear,include:page.include,manualSkip:page.manualSkip,ocr:!!page.ocr,ai:page.ai||{}},bookProgress()).catch(storageProblem);
+}
+function saveReadingPosition(audio) {
+  if(!activeBook?.started || restoringBook)return;
+  bookStorage.progress(activeBook.id,bookProgress(),audio).catch(storageProblem);
+}
+setInterval(()=>{ if(playing)saveReadingPosition(); },3000);
+const naturalEngine = new QariNaturalVoice();
+const naturalAudio = new Audio();
+let naturalUrl = null, naturalRange = null, narrationToken = 0;
+let narrationStarted = false;
+let previewAudio = null, previewUrl = null, previewToken = 0;
+let geminiVoiceKey = '';
+function storedVoice(name) { try { return localStorage.getItem('qari.voice.' + name) || ''; } catch { return ''; } }
+function saveVoiceSetting(name, value) { try { value ? localStorage.setItem('qari.voice.' + name,value) : localStorage.removeItem('qari.voice.' + name); } catch {} }
+geminiVoiceKey = storedVoice('key');
+$('modeSel').value = storedVoice('mode') || 'natural';
+$('narratorSel').value = storedVoice('narrator') || 'Sulafat';
+if (!$('narratorSel').value) $('narratorSel').value = 'Sulafat';
+function isNatural() { return $('modeSel').value === 'natural'; }
+const LANG_NAMES = {ar:'Modern Standard Arabic', en:'English', es:'Spanish', fr:'French', de:'German'};
+const LANG_CODES = {ar:'ar-SA', en:'en-US', es:'es-ES', fr:'fr-FR', de:'de-DE'};
+function voiceLanguage() { return LANG_NAMES[bookLang] || 'English'; }
+const PREVIEW_TEXT = {
+  ar:'في صباح هادئ، فتحت الكتاب وبدأت رحلة جديدة. كانت كل صفحة تحمل فكرة جميلة، وقصة تستحق أن تُسمع.',
+  en:'On a quiet morning, I opened the book and began a new journey. Every page held a fresh idea, and a story waiting to be heard.',
+  es:'Una mañana tranquila, abrí el libro y empecé un nuevo viaje. Cada página guardaba una idea nueva, y una historia que merecía ser escuchada.'
+};
+function syncVoiceMode() {
+  $('voiceSel').hidden = isNatural() || !synth;
+  // Only show a line when something needs attention; the player stays compact.
+  $('narrationStatus').textContent = isNatural() && !geminiVoiceKey ? 'Natural voice needs your free Gemini key — tap ⚙️ Voice · أضيفي المفتاح' : '';
+}
+function resetNatural() {
+  narrationToken++;
+  naturalAudio.pause(); naturalAudio.onended = null; naturalAudio.onerror = null;
+  naturalAudio.onloadedmetadata=null;
+  naturalAudio.removeAttribute('src'); naturalAudio.load();
+  if (naturalUrl) URL.revokeObjectURL(naturalUrl);
+  naturalUrl = null; naturalRange = null;
+}
+function stopPreview() {
+  previewToken++;
+  if (previewAudio) { previewAudio.pause(); previewAudio.removeAttribute('src'); previewAudio.load(); }
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewAudio = null; previewUrl = null;
+  $('previewVoiceBtn').removeAttribute('data-loading');
+  $('previewVoiceBtn').textContent = 'Preview voice · تجربة';
+}
+function openVoiceSettings() {
+  stopSpeech();
+  $('geminiVoiceKey').value = geminiVoiceKey;
+  $('rememberVoiceKey').checked = !!storedVoice('key');
+  $('previewLang').value = !sentences.length ? 'ar' : (PREVIEW_TEXT[bookLang] ? bookLang : 'en');
+  $('previewStatus').textContent = '';
+  $('voiceDialog').showModal();
+}
+function applyVoiceKey() {
+  const next = $('geminiVoiceKey').value.trim();
+  if (next !== geminiVoiceKey) naturalEngine.clear();
+  geminiVoiceKey = next;
+  saveVoiceSetting('key', $('rememberVoiceKey').checked ? next : '');
+  saveVoiceSetting('narrator', $('narratorSel').value);
+}
+async function previewVoice() {
+  if (previewAudio || $('previewVoiceBtn').dataset.loading) { stopPreview(); $('previewVoiceBtn').removeAttribute('data-loading'); $('previewStatus').textContent = ''; return; }
+  applyVoiceKey();
+  if (!geminiVoiceKey) { $('previewStatus').textContent = 'Paste your Gemini key first · أضيفي المفتاح أولاً'; $('geminiVoiceKey').focus(); return; }
+  stopPreview();
+  const token = previewToken;
+  $('previewVoiceBtn').dataset.loading = 'true';
+  $('previewVoiceBtn').textContent = 'Stop preview · إيقاف';
+  $('previewStatus').textContent = 'Preparing your sample… · جارٍ تجهيز الصوت';
+  try {
+    const lang = $('previewLang').value;
+    const blob = await naturalEngine.generate(PREVIEW_TEXT[lang], geminiVoiceKey, $('narratorSel').value, LANG_NAMES[lang]);
+    if (token !== previewToken || !$('voiceDialog').open) return;
+    previewUrl = URL.createObjectURL(blob); previewAudio = new Audio(previewUrl);
+    previewAudio.onended = () => { stopPreview(); $('previewStatus').textContent = 'Choose this narrator or try another · اختاري الصوت أو جرّبي غيره'; };
+    previewAudio.onerror = () => { stopPreview(); $('previewStatus').textContent = 'Sample could not play. Try again.'; };
+    await previewAudio.play();
+    $('previewStatus').textContent = 'Playing sample · تشغيل التجربة';
+  } catch (error) { if (token === previewToken) { stopPreview(); $('previewStatus').textContent = error.message; } }
+  finally { if (token === previewToken) $('previewVoiceBtn').removeAttribute('data-loading'); }
+}
+$('voiceSettingsBtn').onclick = openVoiceSettings;
+$('playerVoiceSettings').onclick = openVoiceSettings;
+$('previewVoiceBtn').onclick = previewVoice;
+$('closeVoiceBtn').onclick = () => $('voiceDialog').close();
+$('voiceDialog').addEventListener('close', () => { stopPreview(); $('previewVoiceBtn').removeAttribute('data-loading'); syncVoiceMode(); });
+$('narratorSel').onchange = () => { stopPreview(); $('previewVoiceBtn').removeAttribute('data-loading'); resetNatural(); };
+$('previewLang').onchange = () => { stopPreview(); $('previewVoiceBtn').removeAttribute('data-loading'); };
+$('saveVoiceBtn').onclick = () => {
+  applyVoiceKey();
+  if (!geminiVoiceKey) { $('previewStatus').textContent = 'Paste your Gemini key first · أضيفي المفتاح أولاً'; $('geminiVoiceKey').focus(); return; }
+  resetNatural(); $('modeSel').value = 'natural'; saveVoiceSetting('mode', 'natural'); $('voiceDialog').close();
+  syncVoiceMode();
+};
+$('deviceVoiceBtn').onclick = () => { resetNatural(); $('modeSel').value = 'device'; saveVoiceSetting('mode','device'); $('voiceDialog').close(); syncVoiceMode(); };
+$('forgetVoiceBtn').onclick = () => { stopPreview(); resetNatural(); naturalEngine.clear(); geminiVoiceKey = ''; saveVoiceSetting('key',''); $('geminiVoiceKey').value = ''; $('rememberVoiceKey').checked = false; $('previewStatus').textContent = 'Key removed from this device · تم حذف المفتاح'; };
+$('modeSel').onchange = () => { stopSpeech(); resetNatural(); saveVoiceSetting('mode',$('modeSel').value); syncVoiceMode(); };
+syncVoiceMode();
+
+// ---------- helpers ----------
+function toast(msg, ms = 2600) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+function isArabic(text) {
+  const ar = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  return ar > text.length * 0.25;
+}
+
+// Detects the book's language from common short words, so a Spanish book is read
+// by a Spanish voice instead of an English one.
+const LANG_WORDS = {
+  en:['the','and','of','to','is','was','that','with','for','he','she','it','you','in','his','her','they','have','not','this'],
+  es:['el','la','los','las','de','que','y','en','un','una','es','por','con','no','se','del','para','su','pero','como','muy','est\u00E1','tambi\u00E9n'],
+  fr:['le','la','les','des','et','est','une','un','que','dans','pour','pas','qui','sur','avec','il','elle','ce','du','au'],
+  de:['der','die','das','und','ist','nicht','ein','eine','zu','den','mit','sich','auf','f\u00FCr','ich','von','dem','sie','es','auch']
+};
+function detectLanguage(text) {
+  if (isArabic(text)) return 'ar';
+  const words = (text.toLowerCase().match(/[\p{L}]+/gu) || []).slice(0, 3000);
+  const scores = {};
+  for (const [lang, list] of Object.entries(LANG_WORDS)) {
+    const set = new Set(list);
+    scores[lang] = words.reduce((n, w) => n + (set.has(w) ? 1 : 0), 0);
+  }
+  // Spanish-only letters are a strong hint.
+  scores.es += ((text.match(/[\u00F1\u00BF\u00A1]/gi) || []).length) * 3;
+  const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] > 0 ? best[0] : 'en';
+}
+
+// Higher score = more human-sounding device voice. Network/neural voices
+// (e.g. "Microsoft \u2026 Online (Natural)", "Google \u2026", Apple "Enhanced/Premium")
+// sound far less robotic than the compact offline ones that are often listed first.
+function voiceQuality(v) {
+  const n = (v.name || '').toLowerCase();
+  let s = 0;
+  if (/natural|neural|wavenet|studio|journey|chirp/.test(n)) s += 50;
+  if (/premium|enhanced|siri/.test(n)) s += 40;
+  if (/online/.test(n)) s += 20;
+  if (/google/.test(n)) s += 15;
+  if (v.localService === false) s += 10;
+  if (/compact|espeak|robot|novelty|whisper|bad news|bells|bubbles|cellos|zarvox|trinoids|boing|jester|organ|superstar/.test(n)) s -= 60;
+  return s;
+}
+
+function cleanPageText(raw) {
+  return raw
+    .replace(/-\s*\n\s*/g, '')
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^\s*\d{1,4}\s*$/g, '')
+    .trim();
+}
+
+// Conservative page-level filter. Flagged text remains visible and can be included again.
+function unclearScan(raw, confidence) {
+  const text = raw.trim();
+  if (!text) return false;
+  const chars = text.replace(/\s/g,'');
+  const tokens = text.match(/[\p{L}\p{M}]+/gu) || [];
+  const noise = (text.match(/[#~|<>=®^_{}\[\]\\]/g) || []).length / Math.max(1,chars.length);
+  const short = tokens.filter(t => t.length <= 2).length / Math.max(1,tokens.length);
+  const lowConfidence = typeof confidence === 'number' && Number.isFinite(confidence) && confidence < 25 && chars.length >= 20;
+  const heavyNoise = chars.length >= 30 && (noise >= .22 || (noise >= .09 && short >= .32));
+  return lowConfidence || heavyNoise;
+}
+function extractPdfText(items) {
+  let text = '', previous = null;
+  for (const item of items) {
+    if (typeof item.str !== 'string' || !item.transform) continue;
+    const x = item.transform[4], y = item.transform[5];
+    const size = Math.abs(item.height || item.transform[3] || 12);
+    if (previous && !/\s$/.test(text) && !/^\s/.test(item.str)) {
+      const newLine = Math.abs(y - previous.y) > Math.max(size,previous.size) * .6;
+      const gap = item.dir === 'rtl' ? previous.x - (x + item.width) : x - previous.right;
+      if (newLine) text += '\n';
+      else if (gap > Math.max(.6,size * .12)) text += ' ';
+    }
+    text += item.str;
+    previous = {x,y,right:x+(item.width || 0),size};
+    if (item.hasEOL) { text += '\n'; previous = null; }
+  }
+  return text;   // raw lines; cleaned (headers, page numbers) in ocrFlow
+}
+function scanCleanupOn() { return storedVoice('cleanup') !== 'off'; }
+function hasReadablePdfText(text) {
+  return (text.match(/\p{L}/gu) || []).length >= 8 && !unclearScan(text);
+}
+function pageIsSkipped(page) {
+  return !!page && !page.include && (page.manualSkip || (page.unclear && $('smartSkip').checked));
+}
+function refreshPageNotes() {
+  for (const page of readerPages.values()) {
+    const skipped = pageIsSkipped(page);
+    page.note.hidden = !skipped;
+    page.message.textContent = page.manualSkip
+      ? 'Page skipped during audio · تم تخطّي الصفحة في القراءة'
+      : 'Unclear scan — skipped during audio · نص غير واضح — تم تخطّيه في القراءة';
+  }
+  for (const s of sentences) s.el.classList.toggle('skipped',pageIsSkipped(s.pageState));
+}
+function nextReadable(index) {
+  while (index < sentences.length && pageIsSkipped(sentences[index].pageState)) index++;
+  return index;
+}
+function skipCurrentPage() {
+  const s = sentences[current];
+  if (!s) return;
+  const page = s.pageState || readerPages.get(s.pageNum);
+  if (!page) return;
+  page.manualSkip = true; page.include = false;
+  savePageCheckpoint(page);
+  refreshPageNotes();
+  const next = sentences.findIndex((item,i) => i > current && item.pageNum !== s.pageNum && !pageIsSkipped(item.pageState));
+  if (next >= 0) jumpTo(next);
+  else {
+    resetNatural(); naturalEngine.cancelPending(); stopSpeech();
+    current = sentences.length; waitingForPage = $('ocrChip').style.display === 'flex'; updateUi();
+    $('narrationStatus').textContent = waitingForPage ? 'Page skipped. Waiting for the next page… · انتظار الصفحة التالية' : 'Page skipped. No more readable pages · لا توجد صفحات أخرى للقراءة';
+  }
+}
+$('skipPageBtn').onclick = skipCurrentPage;
+$('smartSkip').onchange = () => {
+  saveVoiceSetting('smartSkip',$('smartSkip').checked ? 'on' : 'off');
+  refreshPageNotes();
+  if (playing && pageIsSkipped(sentences[current]?.pageState)) jumpTo(nextReadable(current));
+};
+$('smartSkip').checked = storedVoice('smartSkip') !== 'off';
+
+function splitSentences(text) {
+  const parts = text.split(/(?<=[.!?؟…])\s+/);
+  const out = [];
+  for (let p of parts) {
+    p = p.trim();
+    if (!p) continue;
+    while (p.length > 260) {
+      let cut = p.lastIndexOf('،', 250);
+      if (cut < 80) cut = p.lastIndexOf(',', 250);
+      if (cut < 80) cut = p.lastIndexOf(' ', 250);
+      if (cut < 80) cut = 250;
+      out.push(p.slice(0, cut + 1).trim());
+      p = p.slice(cut + 1).trim();
+    }
+    if (p) out.push(p);
+  }
+  return out;
+}
+
+// ---------- voices ----------
+function loadVoices() {
+  if (!synth) return;
+  voices = synth.getVoices();
+  const sel = $('voiceSel');
+  sel.innerHTML = '';
+  if (!voices.length) {
+    sel.innerHTML = '<option>Voices loading…</option>';
+    return;
+  }
+  const langPrefix = bookLang;
+  const preferred = voices.filter(v => v.lang.toLowerCase().startsWith(langPrefix))
+    .sort((a, b) => voiceQuality(b) - voiceQuality(a));
+  const rest = voices.filter(v => !preferred.includes(v));
+  // "Auto" asks the phone for the language directly — works even when
+  // Chrome hides the matching voice from the list.
+  const auto = document.createElement('option');
+  auto.value = 'auto';
+  auto.textContent = bookIsArabic ? '🔊 تلقائي — صوت عربي من الجهاز' : '🔊 Auto (device voice)';
+  sel.appendChild(auto);
+  [...preferred, ...rest].forEach(v => {
+    const o = document.createElement('option');
+    o.value = voices.indexOf(v);
+    o.textContent = (voiceQuality(v) >= 40 ? '★ ' : '') + v.name + ' (' + v.lang + ')';
+    sel.appendChild(o);
+  });
+  // Use the voice chosen last time for this language, else the most natural-sounding one.
+  const remembered = voices.findIndex(v => v.name === storedVoice('device.' + bookLang));
+  sel.value = remembered >= 0 ? String(remembered)
+    : preferred.length ? String(voices.indexOf(preferred[0])) : 'auto';
+  if (!preferred.length && sentences.length && langDecided && bookIsArabic) {
+    toast('لم يظهر صوت عربي في القائمة — سيُستخدم الوضع التلقائي', 4000);
+  }
+}
+loadVoices();
+if (synth && synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+
+// ---------- reader construction (incremental) ----------
+function initReader(name) {
+  resetNatural(); naturalEngine.clear();
+  narrationStarted=false;
+  readerPages.clear(); waitingForPage = false;
+  sentences = [];
+  current = 0;
+  langDecided = false;
+  $('textPane').innerHTML = '';
+  $('bookTitle').textContent = name.replace(/\.(pdf|txt|epub)$/i, '');
+  $('loading').style.display = 'none';
+  $('emptyState').style.display = 'none';
+  $('reader').style.display = 'block';
+  $('player').style.display = 'flex';
+  $('newBookBtn').style.display = 'block';
+  $('exportBtn').style.display = 'block';
+  Q.bookOpened?.();
+}
+
+function decideLanguage(sampleText) {
+  if (langDecided) return;
+  bookLang = detectLanguage(sampleText);
+  bookIsArabic = bookLang === 'ar';
+  langDecided = true;
+  $('textPane').classList.toggle('rtl', bookIsArabic);
+  loadVoices();
+}
+
+function appendPageText(pageNum, cleanText, label, scan = null) {
+  if (!cleanText) return 0;
+  const pane = $('textPane');
+  const frag = document.createDocumentFragment();
+  const m = document.createElement('span');
+  m.className = 'page-marker';
+  m.textContent = label || ((bookIsArabic ? 'صفحة ' : 'Page ') + pageNum);
+  frag.appendChild(m);
+  const state = {pageNum,text:cleanText,label,unclear:!!scan?.unclear, manualSkip:false, include:false,
+    ocr:!!scan?.ocr, ai:scan?.ai || {}};
+  const note = document.createElement('div'); note.className = 'scan-note'; note.hidden = true;
+  const message = document.createElement('span');
+  const include = document.createElement('button'); include.className = 'voice-button'; include.textContent = 'Read this page · قراءة الصفحة';
+  include.onclick = () => {
+    state.include = true; state.manualSkip = false; refreshPageNotes();
+    savePageCheckpoint(state);
+    const first = sentences.findIndex(s => s.pageState === state);
+    if (first >= 0) { jumpTo(first); if (!playing) play(); }
+  };
+  note.appendChild(message); note.appendChild(include); frag.appendChild(note);
+  state.note = note; state.message = message; readerPages.set(pageNum,state);
+  const parts = splitSentences(cleanText);
+  for (const text of parts) {
+    const item = makeSentence(text, state);
+    sentences.push(item);
+    frag.appendChild(item.el);
+  }
+  pane.appendChild(frag);
+  refreshPageNotes();
+  savePageCheckpoint(state);
+  Q.pageAdded?.(state);
+  return parts.length;
+}
+function makeSentence(text, state) {
+  const el = document.createElement('span');
+  el.className = 's';
+  el.textContent = text + ' ';
+  const item = { text, pageNum: state.pageNum, label: state.label, el, pageState: state };
+  // Index is looked up on tap, so it stays right when a page's text is replaced.
+  el.addEventListener('click', () => {
+    const idx = sentences.indexOf(item);
+    if (idx < 0) return;
+    Q.sentenceTap ? Q.sentenceTap(idx) : jumpTo(idx);
+  });
+  return item;
+}
+// Swaps one page's text (AI clean-up, vowel marks) without disturbing playback elsewhere.
+function replacePageText(pageNum, newText, aiPatch) {
+  const state = readerPages.get(pageNum);
+  if (!state) return false;
+  const first = sentences.findIndex(s => s.pageState === state);
+  if (first < 0) return false;
+  let last = first;
+  while (last < sentences.length && sentences[last].pageState === state) last++;
+  const cleaned = cleanPageText(newText);
+  const parts = splitSentences(cleaned);
+  if (!parts.length) return false;
+  const items = parts.map(t => makeSentence(t, state));
+  const frag = document.createDocumentFragment();
+  items.forEach(i => frag.appendChild(i.el));
+  sentences[first].el.parentNode.insertBefore(frag, sentences[first].el);
+  for (let i = first; i < last; i++) sentences[i].el.remove();
+  const delta = items.length - (last - first);
+  const touchesNow = (current >= first && current < last) ||
+    (naturalRange && naturalRange.start < last && naturalRange.end > first);
+  sentences.splice(first, last - first, ...items);
+  if (touchesNow) {
+    const wasPlaying = playing;
+    resetNatural(); naturalEngine.cancelPending(); if (synth) synth.cancel();
+    current = Math.min(first + Math.max(0, current - first), first + items.length - 1);
+    if (wasPlaying) setTimeout(speakCurrent, 60);
+  } else if (current >= last) {
+    current += delta;
+    if (naturalRange && naturalRange.start >= last) { naturalRange.start += delta; naturalRange.end += delta; }
+  }
+  state.text = cleaned; state.unclear = false; state.include = state.include || false;
+  state.ai = {...(state.ai || {}), ...(aiPatch || {})};
+  sentences.forEach((s, i) => s.el.classList.toggle('spoken', i < current));
+  refreshPageNotes(); savePageCheckpoint(state); updateUi();
+  Q.pageAdded?.(state);
+  return true;
+}
+
+// ---------- file opening ----------
+$('exportBtn').addEventListener('click', () => {
+  if (!sentences.length) return;
+  let out = '';
+  let lastKey = null;
+  for (const s of sentences) {
+    const key = s.label || s.pageNum;
+    if (key !== lastKey) {
+      out += '\n\n=== PAGE ' + s.pageNum + (s.label ? ' — ' + s.label : '') + ' ===\n\n';
+      lastKey = key;
+    }
+    out += s.text + ' ';
+  }
+  const first = sentences[0], last = sentences[sentences.length - 1];
+  const range = (!first.label && (first.pageNum !== 1 || last.pageNum > 1))
+    ? ' p' + first.pageNum + '-' + last.pageNum : '';
+  const blob = new Blob(['\uFEFF' + out.trim()], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = ($('bookTitle').textContent || 'book') + range + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast(bookIsArabic ? 'تم حفظ النص في التنزيلات' : 'Text saved to your Downloads', 3500);
+});
+
+$('openBtn').addEventListener('click', () => $('fileInput').click());
+$('newBookBtn').addEventListener('click', () => {
+  saveReadingPosition();
+  $('fileInput').value = '';
+  $('fileInput').click();
+});
+$('fileInput').addEventListener('change', e => openFiles(Array.from(e.target.files || [])));
+async function openFiles(files) {
+  if (!files.length) return;
+  saveReadingPosition(); stopSpeech(); resetNatural();
+  // Opening a book that is already in the library continues where you stopped.
+  if (files.length === 1) {
+    try {
+      const same = await bookStorage.findSame(files[0].name, files[0].size);
+      if (same && same.id !== activeBook?.id) { await openSavedBook(same.id); toast(bookIsArabic ? 'أهلاً بعودتك — نكمل من حيث توقفتِ' : 'Welcome back — continuing where you stopped', 3500); return; }
+    } catch {}
+  }
+  const token=++processingId;
+  ocrCancelled=false;
+  $('emptyState').style.display = 'none';
+  $('loading').style.display = 'flex';
+  try {
+    const isTxt = f => /\.txt$/i.test(f.name) || f.type === 'text/plain';
+    if (files.length > 1 && files.every(isTxt)) {
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const texts = [];
+      for (const f of files) texts.push(await f.text());
+      const name=files[0].name.replace(/\s*p?\d+[-–]\d+/i, '');
+      const merged=new File([texts.join('\n\n')],name,{type:'text/plain'});
+      prepareBook(merged); loadTxtContent(name, texts.join('\n\n'));
+    } else {
+      const file = files[0];
+      prepareBook(file);
+      if (isTxt(file)) {
+        loadTxtContent(file.name, await file.text());
+      } else if (/\.epub$/i.test(file.name) || file.type === 'application/epub+zip') {
+        await loadEpub(file);
+      } else {
+        await loadPdf(file);
+      }
+    }
+    if(token!==processingId)return;
+    activeBook.complete=true; saveReadingPosition();
+  } catch (err) {
+    if(token!==processingId)return;
+    console.error(err);
+    $('loading').style.display = 'none';
+    $('reader').style.display = 'none';
+    $('player').style.display = 'none';
+    $('emptyState').style.display = 'flex';
+    toast('Error: ' + (err && err.message ? err.message : err), 7000);
+  }
+}
+
+function loadTxtContent(name, text) {
+  const MARKER = /===\s*PAGE\s+(\d+)[^=]*===/gi;
+  const pageBlocks = [];
+  if (MARKER.test(text)) {
+    MARKER.lastIndex = 0;
+    const pieces = text.split(/===\s*PAGE\s+(\d+)[^=]*===/i);
+    for (let i = 1; i < pieces.length - 1; i += 2) {
+      const pageNum = parseInt(pieces[i]);
+      const content = pieces[i + 1].trim();
+      if (content) pageBlocks.push({ pageNum, content });
+    }
+  } else {
+    const paras = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    let cur = '', n = 1;
+    for (const p of paras) {
+      if (cur && (cur.length + p.length) > 2500) {
+        pageBlocks.push({ pageNum: n++, content: cur });
+        cur = p;
+      } else cur = cur ? cur + '\n' + p : p;
+    }
+    if (cur) pageBlocks.push({ pageNum: n, content: cur });
+  }
+  if (!pageBlocks.length) throw new Error('This file is empty');
+  initReader(name);
+  decideLanguage(pageBlocks.slice(0, 3).map(b => b.content).join(' ').slice(0, 3000));
+  pageBlocks.forEach(b => appendPageText(b.pageNum, cleanPageText(b.content)));
+  updateUi();
+  if (pageBlocks.length > 5) {
+    const ans = prompt(bookIsArabic
+      ? 'البدء من أي صفحة؟ (اتركيه فارغاً للبداية)'
+      : 'Start from which page? (leave empty for the beginning)', '');
+    const n = parseInt(ans);
+    if (!isNaN(n) && n > 1) {
+      const idx = sentences.findIndex(s => s.pageNum >= n);
+      if (idx > 0) jumpTo(idx);
+    }
+  }
+  toast(bookIsArabic ? 'جاهز — اضغطي زر التشغيل' : 'Ready — press play', 3000);
+}
+
+async function loadEpub(file) {
+  const token=processingId;
+  $('loadingMsg').textContent = 'Opening EPUB…';
+  if (!window.JSZip) {
+    await loadScript([
+      'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+      'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'
+    ]);
+  }
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const parser = new DOMParser();
+
+  // 1. container.xml tells us where the "spine" (reading order) lives
+  const containerFile = zip.file('META-INF/container.xml');
+  if (!containerFile) throw new Error('Not a valid EPUB (missing container.xml)');
+  const containerXml = parser.parseFromString(await containerFile.async('text'), 'text/xml');
+  const rootfileEl = containerXml.querySelector('rootfile');
+  if (!rootfileEl) throw new Error('Not a valid EPUB (no rootfile)');
+  const opfPath = rootfileEl.getAttribute('full-path');
+  const opfDir = opfPath.includes('/') ? opfPath.slice(0, opfPath.lastIndexOf('/') + 1) : '';
+
+  // 2. OPF: manifest (id -> file) and spine (reading order)
+  const opfFile = zip.file(opfPath);
+  if (!opfFile) throw new Error('Not a valid EPUB (missing ' + opfPath + ')');
+  const opf = parser.parseFromString(await opfFile.async('text'), 'text/xml');
+  const manifest = {};
+  opf.querySelectorAll('manifest > item').forEach(it => {
+    manifest[it.getAttribute('id')] = {
+      href: it.getAttribute('href'),
+      type: it.getAttribute('media-type') || ''
+    };
+  });
+  const spineIds = Array.from(opf.querySelectorAll('spine > itemref'))
+    .map(ir => ir.getAttribute('idref'))
+    .filter(id => manifest[id]);
+  if (!spineIds.length) throw new Error('This EPUB has no readable chapters');
+
+  // 3. Extract text chapter by chapter
+  const chapters = [];
+  for (const id of spineIds) {
+    const item = manifest[id];
+    if (!/html|xml/i.test(item.type) && !/\.x?html?$/i.test(item.href)) continue;
+    const path = decodeURIComponent(opfDir + item.href).replace(/\\/g, '/');
+    const f = zip.file(path) || zip.file(item.href);
+    if (!f) continue;
+    const doc = parser.parseFromString(await f.async('text'), 'text/html');
+    if (!doc.body) continue;
+    doc.body.querySelectorAll('script, style, nav').forEach(n => n.remove());
+    const blocks = Array.from(doc.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td'))
+      .map(n => n.textContent.trim())
+      .filter(Boolean);
+    const text = blocks.length ? blocks.join('\n') : (doc.body.textContent || '').trim();
+    if (!text) continue;
+    const headingEl = doc.body.querySelector('h1, h2, h3');
+    let heading = headingEl ? headingEl.textContent.trim().replace(/\s+/g, ' ') : '';
+    if (heading.length > 40) heading = heading.slice(0, 38) + '…';
+    chapters.push({ heading, text });
+  }
+  if (!chapters.length) throw new Error('Could not find any text in this EPUB');
+
+  if(token!==processingId)return;
+  initReader(file.name);
+  decideLanguage(chapters.slice(0, 3).map(c => c.text).join(' ').slice(0, 3000));
+  chapters.forEach((c, i) => {
+    const label = c.heading || ((bookIsArabic ? 'فصل ' : 'Chapter ') + (i + 1));
+    appendPageText(i + 1, cleanPageText(c.text), label);
+  });
+  if (!sentences.length) throw new Error('Could not find any text in this EPUB');
+  updateUi();
+  toast(bookIsArabic ? 'جاهز — اضغطي زر التشغيل' : 'Ready — press play', 3000);
+}
+
+async function loadPdf(file, resumeFrom = 1) {
+  const token=processingId;
+  await ensureWorker();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  if(token!==processingId)return;
+  await ocrFlow(pdf, file.name || activeBook?.name || 'Book.pdf', [], resumeFrom, token);
+}
+
+// ---------- OCR for scanned books ----------
+function loadScript(urls) {
+  return new Promise((resolve, reject) => {
+    const tryNext = i => {
+      if (i >= urls.length) { reject(new Error('Could not load the OCR engine — check your internet connection')); return; }
+      const s = document.createElement('script');
+      s.src = urls[i];
+      s.onload = () => resolve();
+      s.onerror = () => tryNext(i + 1);
+      document.head.appendChild(s);
+    };
+    tryNext(0);
+  });
+}
+
+async function ocrFlow(pdf, name, pageTexts = [], startPage = 1, token = processingId) {
+  let worker=null, ocrStatusText='', canvas=null, ctx=null;
+  const headerMemory=new Map();
+  let started=startPage>1 && sentences.length>0;
+  const nativeSample=pageTexts.filter(hasReadablePdfText).slice(0,3).join(' ');
+  let arabicOnly=nativeSample.length>100 ? isArabic(nativeSample) : null;
+  async function prepareOcr() {
+    if(worker)return;
+    if(!window.Tesseract) await loadScript([
+      'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js',
+      'https://unpkg.com/tesseract.js@5/dist/tesseract.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js'
+    ]);
+    if(token!==processingId)return;
+    if(arabicOnly===null) arabicOnly=langDecided ? bookIsArabic : confirm('هل الكتاب بالعربية فقط؟\nIs this scanned book Arabic only?\nOK = Arabic / Cancel = English');
+    worker=await Tesseract.createWorker(arabicOnly?'ara':'eng',1,{logger:m=>{
+      if(token!==processingId)return;
+      if(m.status==='recognizing text') $('ocrChipText').textContent=ocrStatusText+' — '+Math.round((m.progress||0)*100)+'%';
+      else if(!started && m.status) $('loadingMsg').textContent='Preparing text recognition…';
+    }});
+    await worker.setParameters({tessedit_pageseg_mode:'3',preserve_interword_spaces:'1'});
+    canvas=document.createElement('canvas');ctx=canvas.getContext('2d');
+  }
+  keepAwake(true);
+  try {
+    for(let i=startPage;i<=pdf.numPages;i++) {
+      if(ocrCancelled || token!==processingId)return;
+      ocrStatusText='Reading page '+i+' of '+pdf.numPages;
+      $('ocrChipText').textContent=ocrStatusText;
+      if(!started) $('loadingMsg').textContent=ocrStatusText+'…';
+      let text=pageTexts[i-1];
+      const page=await pdf.getPage(i);
+      if(token!==processingId)return;
+      if(text===undefined) {
+        try { text=extractPdfText((await page.getTextContent()).items); }
+        catch { text=''; }
+      }
+      if(token!==processingId)return;
+      let scan=null;
+      if(!hasReadablePdfText(text)) {
+        try {
+          await prepareOcr();
+          if(token!==processingId)return;
+          const vp1=page.getViewport({scale:1});
+          const vp=page.getViewport({scale:Math.min(3,2400/vp1.width)});
+          canvas.width=vp.width;canvas.height=vp.height;
+          await page.render({canvasContext:ctx,viewport:vp}).promise;
+          const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
+          for(let j=0;j<pixels.data.length;j+=4) {
+            const gray=.299*pixels.data[j]+.587*pixels.data[j+1]+.114*pixels.data[j+2];
+            const level=Math.max(0,Math.min(255,(gray-128)*1.1+128));
+            pixels.data[j]=pixels.data[j+1]=pixels.data[j+2]=level;
+          }
+          ctx.putImageData(pixels,0,0);
+          let res=await worker.recognize(canvas);
+          if(token!==processingId)return;
+          if(unclearScan(res.data.text||'',res.data.confidence)) {
+            try {
+              await worker.setParameters({tessedit_pageseg_mode:'6'});
+              const retry=await worker.recognize(canvas);
+              if((retry.data.confidence||0)>(res.data.confidence||0) && (retry.data.text||'').trim())res=retry;
+            } catch { /* Retain the first result when a retry is unavailable. */ }
+            finally { await worker.setParameters({tessedit_pageseg_mode:'3'}).catch(()=>{}); }
+          }
+          text=res.data.text||'';scan={unclear:unclearScan(text,res.data.confidence),ocr:true};
+          if(arabicOnly) text=text.replace(/[A-Za-z]+/g,' ').replace(/[|~^#*_=\\\/<>{}\[\]§¤°•¬£$%&@+]+/g,' ');
+        } catch(e) { scan={unclear:true,ocr:true};text=text||''; }
+      }
+      // Free clean-up: drop page numbers, running headers/footers and junk lines.
+      if(text && scanCleanupOn()) { try { text=QariAI.cleanRawPage(text,headerMemory); } catch {} }
+      text=cleanPageText(text||'');
+      if(token!==processingId)return;
+      if(!started) {
+        initReader(name);
+        if(arabicOnly===true) {langDecided=true;bookIsArabic=true;bookLang='ar';$('textPane').classList.add('rtl');loadVoices();}
+        else if(text)decideLanguage(text);
+        $('ocrChip').style.display='flex';started=true;
+      }
+      if(!langDecided && text)decideLanguage(text);
+      if(text)appendPageText(i,text,undefined,scan);
+      else savePageCheckpoint({pageNum:i,text:'',unclear:false});
+      updateUi();
+      // Save each page as it arrives; later pages never delay the first readable page.
+    }
+    if(token!==processingId)return;
+    if(activeBook)activeBook.complete=true;
+    saveReadingPosition();
+    $('ocrChip').style.display='none';waitingForPage=false;
+    if(!playing)keepAwake(false);
+    if(!sentences.length)throw new Error('No readable text found in this book');
+  } finally { if(worker)await worker.terminate(); }
+}
+
+// ---------- keep screen awake during OCR and playback ----------
+let wakeLock = null;
+let wantAwake = false;
+async function keepAwake(on) {
+  wantAwake = on;
+  try {
+    if (on && 'wakeLock' in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch (e) { /* not supported or denied — non-fatal */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && wantAwake) keepAwake(true);
+});
+
+// ---------- background audio keep-alive + media controls ----------
+// A quietly looping audio track makes Android treat this tab like a music
+// player: playback keeps running when you switch apps, and play/pause
+// controls appear in the notification shade.
+const bgAudio = new Audio('data:audio/wav;base64,UklGRsQPAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAPAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA');
+bgAudio.loop = true;
+bgAudio.volume = 0.02;
+
+function mediaSessionSetup() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: document.getElementById('bookTitle').textContent || 'Qari',
+      artist: 'Qari',
+      album: 'PDF Audiobook'
+    });
+    navigator.mediaSession.setActionHandler('play', () => play());
+    navigator.mediaSession.setActionHandler('pause', () => stopSpeech());
+    navigator.mediaSession.setActionHandler('nexttrack', () => jumpTo(current + 1));
+    navigator.mediaSession.setActionHandler('previoustrack', () => jumpTo(current - 1));
+  } catch (e) { /* non-fatal */ }
+}
+
+// ---------- playback ----------
+function speakCurrent() {
+  if (!playing) return;
+  const readable = nextReadable(current);
+  if (readable !== current) { resetNatural(); current = readable; updateUi(); }
+  if (current >= sentences.length) {
+    const hasExcludedPages = [...readerPages.values()].some(pageIsSkipped);
+    waitingForPage = $('ocrChip').style.display === 'flex';
+    stopSpeech(); resetNatural();
+    if ($('ocrChip').style.display === 'flex') {
+      toast(bookIsArabic ? 'وصلتِ لآخر ما تم التعرف عليه — انتظري قليلاً' : 'Reached the last recognized page — give OCR a moment to catch up', 4000);
+    } else {
+      toast(hasExcludedPages ? 'No more readable pages. Review skipped pages or turn off Skip unclear scans.' : (bookIsArabic ? 'انتهى الكتاب 🎉' : 'End of book 🎉'));
+    }
+    return;
+  }
+  if (isNatural()) { speakNatural(); return; }
+  if (!synth) { playing = false; updateUi(); showNoTtsHelp(); return; }
+  const s = sentences[current];
+  const token = narrationToken;
+  utter = new SpeechSynthesisUtterance(s.text);
+  const selVal = $('voiceSel').value;
+  const vIdx = parseInt(selVal);
+  if (selVal !== 'auto' && !isNaN(vIdx) && voices[vIdx]) {
+    utter.voice = voices[vIdx];
+    utter.lang = voices[vIdx].lang;
+  } else {
+    // Auto: request the language and let the phone's engine choose the voice
+    utter.lang = LANG_CODES[bookLang] || 'en-US';
+  }
+  utter.rate = parseFloat($('rateSel').value);
+  utter.onend = () => {
+    if (!playing || token !== narrationToken) return;
+    s.el.classList.add('spoken');
+    current++;
+    updateUi();
+    speakCurrent();
+  };
+  utter.onerror = ev => {
+    if (ev.error === 'interrupted' || ev.error === 'canceled') return;
+    playing = false;
+    updateUi();
+    toast('Speech stopped (' + ev.error + ') — try another voice', 4000);
+  };
+  synth.speak(utter);
+}
+
+async function speakNatural() {
+  const token = narrationToken;
+  if (naturalRange && naturalRange.start === current && naturalAudio.src) {
+    try { await naturalAudio.play(); } catch { stopSpeech(); toast('Tap Play to resume the audio.'); }
+    updateUi(); return;
+  }
+  // Passages stop before a downloaded passage (so it can be used) and at the
+  // sleep timer's chapter end.
+  const stopAt = Q.nextOfflineStart ? sentences[Q.nextOfflineStart(current)] : null;
+  const canRead = s => !pageIsSkipped(s.pageState) && s !== stopAt && (!Q.passageLimit || Q.passageLimit(s));
+  $('narrationStatus').textContent = 'Preparing narration… · جارٍ تجهيز المقطع';
+  try {
+    let range, blob;
+    const saved = Q.offlineAudio ? await Q.offlineAudio(current) : null;
+    if (token !== narrationToken || !playing || !isNatural()) return;
+    if (saved) { range = {start: saved.start, end: saved.end, text: saved.text}; blob = saved.blob; }
+    else {
+      range = QariNaturalVoice.passage(sentences, current, narrationStarted ? 1100 : 400, s => s === sentences[current] || canRead(s));
+      blob = await naturalEngine.generate(range.text, geminiVoiceKey, $('narratorSel').value, voiceLanguage());
+    }
+    if (token !== narrationToken || !playing || !isNatural()) return;
+    if (naturalUrl) URL.revokeObjectURL(naturalUrl);
+    naturalRange = range; naturalUrl = URL.createObjectURL(blob); naturalAudio.src = naturalUrl;
+    narrationStarted=true;
+    saveReadingPosition({start:range.start,end:range.end,voice:$('narratorSel').value,language:voiceLanguage(),blob});
+    naturalAudio.playbackRate = parseFloat($('rateSel').value);
+    // The range stays intact across pause/resume; exact sentence timestamps are not provided by TTS.
+    naturalAudio.onended = () => finishNaturalRange(range);
+    naturalAudio.onerror = () => { stopSpeech(); resetNatural(); $('narrationStatus').textContent = 'Audio could not play. Tap Play to retry.'; };
+    await naturalAudio.play();
+    if (token !== narrationToken || !playing) { naturalAudio.pause(); return; }
+    $('narrationStatus').textContent = '';
+    updateUi();
+    // Prepare only the next passage, and only while listening.
+    const nextIndex = nextReadable(range.end);
+    if (nextIndex < sentences.length && geminiVoiceKey && !(Q.hasOfflineAt && Q.hasOfflineAt(nextIndex))) {
+      const nextStop = Q.nextOfflineStart ? sentences[Q.nextOfflineStart(nextIndex)] : null;
+      const next = QariNaturalVoice.passage(sentences,nextIndex,1100,s => s === sentences[nextIndex] || (canRead(s) && s !== nextStop));
+      naturalEngine.generate(next.text, geminiVoiceKey, $('narratorSel').value, voiceLanguage()).catch(() => {});
+    }
+  } catch (error) {
+    if (token !== narrationToken) return;
+    stopSpeech(); resetNatural();
+    $('narrationStatus').textContent = error.message;
+    toast(error.message,6000);
+  }
+}
+function finishNaturalRange(range) {
+  if (!playing || !isNatural() || naturalRange !== range) return;
+  for (let i=range.start;i<range.end;i++)sentences[i].el.classList.add('spoken');
+  current=range.end;resetNatural();updateUi();speakCurrent();
+}
+
+function play() {
+  if (!sentences.length) return;
+  if (isNatural() && !geminiVoiceKey && !(naturalRange && naturalAudio.src) && !(Q.hasOfflineAt && Q.hasOfflineAt(nextReadable(current)))) { openVoiceSettings(); return; }
+  if (!isNatural() && !synth) { showNoTtsHelp(); return; }
+  if (current >= sentences.length && waitingForPage) { toast('Waiting for the next readable page… · انتظار الصفحة التالية',4000); return; }
+  if (current >= sentences.length) { current = 0; resetNatural(); sentences.forEach(s => s.el.classList.remove('spoken')); }
+  waitingForPage = false;
+  playing = true;
+  if (!isNatural()) $('narrationStatus').textContent = '';
+  keepAwake(true);
+  bgAudio.play().catch(() => {});
+  mediaSessionSetup();
+  if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'playing'; } catch(e){}
+  if (synth) synth.cancel();
+  setTimeout(speakCurrent, 60);
+  updateUi();
+}
+
+function stopSpeech() {
+  saveReadingPosition();
+  narrationToken++;
+  playing = false;
+  naturalAudio.pause();
+  bgAudio.pause();
+  if ('mediaSession' in navigator) try { navigator.mediaSession.playbackState = 'paused'; } catch(e){}
+  if (synth) synth.cancel();
+  if ($('ocrChip').style.display !== 'flex') keepAwake(false);
+  updateUi();
+}
+
+function jumpTo(i) {
+  resetNatural(); naturalEngine.cancelPending();
+  current = Math.max(0, Math.min(i, sentences.length));
+  waitingForPage = current >= sentences.length && $('ocrChip').style.display === 'flex';
+  saveReadingPosition();
+  sentences.forEach((s, idx) => {
+    s.el.classList.toggle('spoken', idx < current);
+  });
+  if (playing) {
+    if (synth) synth.cancel();
+    setTimeout(speakCurrent, 60);
+  }
+  updateUi();
+}
+
+$('playBtn').addEventListener('click', () => { playing ? stopSpeech() : play(); });
+$('backBtn').addEventListener('click', () => jumpTo(current - 1));
+$('fwdBtn').addEventListener('click', () => jumpTo(current + 1));
+$('rateSel').addEventListener('change', () => {
+  if (isNatural()) naturalAudio.playbackRate = parseFloat($('rateSel').value);
+  else if (playing) jumpTo(current);
+});
+$('voiceSel').addEventListener('change', () => {
+  const v = voices[parseInt($('voiceSel').value)];
+  saveVoiceSetting('device.' + bookLang, v ? v.name : '');
+  if (playing) jumpTo(current);
+});
+
+$('pageLabel').style.textDecoration = 'underline dotted';
+$('pageLabel').style.cursor = 'pointer';
+$('pageLabel').addEventListener('click', () => {
+  if (!sentences.length) return;
+  const ans = prompt(bookIsArabic ? 'الانتقال إلى صفحة:' : 'Jump to page:', '');
+  const n = parseInt(ans);
+  if (isNaN(n)) return;
+  const idx = sentences.findIndex(s => s.pageNum >= n);
+  if (idx >= 0) jumpTo(idx);
+});
+
+$('progressTrack').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const frac = (e.clientX - r.left) / r.width;
+  jumpTo(Math.floor(frac * sentences.length));
+});
+
+function updateUi() {
+  const playerHeight = $('player').offsetHeight || 0;
+  if (playerHeight) { $('reader').style.paddingBottom = (playerHeight + 24) + 'px'; $('homeLink').style.bottom = (playerHeight + 14) + 'px'; }
+  $('playIcon').style.display = playing ? 'none' : 'block';
+  $('pauseIcon').style.display = playing ? 'block' : 'none';
+  $('playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+
+  sentences.forEach((s, i) => s.el && s.el.classList.toggle('now',
+    isNatural() && naturalRange ? i >= naturalRange.start && i < naturalRange.end : i === current));
+  const s = sentences[current];
+  if (s && s.el) {
+    s.el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    $('pageLabel').textContent = s.label
+      ? s.label
+      : (bookIsArabic ? 'صفحة ' : 'p. ') + s.pageNum;
+  }
+  const pct = sentences.length ? Math.round(current / sentences.length * 100) : 0;
+  $('progressFill').style.width = pct + '%';
+  $('posLabel').textContent = pct + '%';
+  Q.positionChanged?.();
+}
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => {
+  const height = $('player').offsetHeight;
+  if (height) { $('reader').style.paddingBottom = (height + 24) + 'px'; $('homeLink').style.bottom = (height + 14) + 'px'; }
+}).observe($('player'));
+
+// Keep speech alive on some Android browsers that auto-pause
+setInterval(() => {
+  if (playing && !isNatural() && synth && synth.paused) synth.resume();
+}, 5000);
+
+// This browser has no built-in reading voice (e.g. some in-app browsers).
+function showNoTtsHelp() {
+  const msg = bookIsArabic
+    ? 'لا يوجد صوت قراءة في هذا المتصفح. افتحي قاري في Chrome، أو استخدمي الصوت الطبيعي من ⚙️'
+    : 'This browser has no reading voice. Open Qari in Chrome, or use Natural voice from ⚙️ Voice.';
+  $('narrationStatus').textContent = msg;
+  toast(msg, 6000);
+}
+window.addEventListener('pagehide', () => { saveReadingPosition(); stopSpeech(); stopPreview(); naturalEngine.clear(); });
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveReadingPosition();});
+function restoreLastBook() { return openSavedBook(); }
+// Opens a book from the library (the last one when no id is given).
+async function openSavedBook(bookId) {
+  if (bookId) { saveReadingPosition(); stopSpeech(); resetNatural(); $('ocrChip').style.display='none'; waitingForPage=false; }
+  const token=bookId ? ++processingId : processingId;
+  ocrCancelled=false;
+  let saved;
+  try { saved=await bookStorage.load(bookId); } catch { return false; }
+  if(token!==processingId || !saved.book)return false;
+  const meta=saved.book;
+  activeBook={...meta,started:true};
+  bookStorage.setActive(meta.id).catch(()=>{});
+  restoringBook=true;
+  bookIsArabic=!!meta.arabic;bookLang=meta.lang || (bookIsArabic?'ar':'en');
+  initReader(meta.name);
+  langDecided=true;
+  $('textPane').classList.toggle('rtl',bookIsArabic);loadVoices();
+  for(const page of saved.pages || []) {
+    if(!page.text)continue;
+    appendPageText(page.pageNum,page.text,page.label,{unclear:page.unclear,ocr:page.ocr,ai:page.ai});
+    const state=readerPages.get(page.pageNum);state.include=!!page.include;state.manualSkip=!!page.manualSkip;
+  }
+  refreshPageNotes();
+  current=Math.min(Math.max(0,meta.currentSentence||0),sentences.length);
+  sentences.forEach((s,i)=>s.el.classList.toggle('spoken',i<current));
+  const audio=saved.audio;
+  if(audio?.blob && audio.start===current && audio.end<=sentences.length && audio.voice===$('narratorSel').value && audio.language===voiceLanguage()) {
+    const range={start:audio.start,end:audio.end};
+    naturalRange=range;naturalUrl=URL.createObjectURL(audio.blob);naturalAudio.src=naturalUrl;
+    narrationStarted=true;naturalAudio.playbackRate=parseFloat($('rateSel').value);
+    naturalAudio.onloadedmetadata=()=>{
+      if(naturalRange!==range)return;
+      const seconds=Math.max(0,meta.currentSeconds||0);
+      if(Number.isFinite(naturalAudio.duration))naturalAudio.currentTime=Math.min(seconds,Math.max(0,naturalAudio.duration-.05));
+      else naturalAudio.currentTime=seconds;
+      naturalAudio.onloadedmetadata=null;
+    };
+    naturalAudio.onended=()=>finishNaturalRange(range);
+    naturalAudio.onerror=()=>{stopSpeech();resetNatural();toast('Saved audio could not play. Tap Play to generate it again.');};
+  }
+  restoringBook=false;updateUi();
+  $('narrationStatus').textContent='Your last book is ready · كتابك الأخير جاهز';
+  if(!meta.complete && /\.pdf$/i.test(meta.name) && meta.file) {
+    $('ocrChip').style.display='flex';
+    loadPdf(meta.file,(meta.processedThrough||0)+1).catch(()=>{
+      if(token!==processingId)return;
+      $('ocrChip').style.display='none';waitingForPage=false;
+      toast('Saved pages are ready. Reopen the PDF to process the remaining pages.',6000);
+    });
+  }
+  return true;
+}
+restoreLastBook();
+</script>
+<script src="qari-features.js"></script>
+  <footer style="position:relative;margin:24px auto 18px;padding:12px 18px;text-align:center;font:700 13px/1.7 'Noto Sans Arabic','Segoe UI',sans-serif;color:#44665f">© 2026 الماسة الزرقاء — جميع الحقوق محفوظة.</footer>
+</body>
+</html>
