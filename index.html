@@ -1485,7 +1485,7 @@ async function speakNatural() {
     if (!synth) { stopSpeech(); $('narrationStatus').textContent = error.message; toast(error.message, 6000); return; }
     // 2) Otherwise read on with the phone's voice, and come back to the Natural voice later.
     if (error.kind === 'passage') deviceUntil = current + 1;   // just the refused sentence
-    else naturalPausedUntil = Date.now() + (error.kind === 'key' ? 864e5 : error.kind === 'limit' ? 120000 : 30000);
+    else naturalPausedUntil = Date.now() + (error.kind === 'key' ? 864e5 : error.kind === 'limit' ? (error.retryMs || 120000) : 30000);
     $('narrationStatus').textContent = (bookIsArabic ? 'نكمل بصوت الهاتف مؤقتاً — ' : 'Reading on with your phone\'s voice for now — ') + error.message;
     speakCurrent();
   }

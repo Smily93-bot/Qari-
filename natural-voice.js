@@ -65,7 +65,13 @@
             const body = await response.json().catch(() => null);
             const reason = (body?.error?.message || '').slice(0, 160);
             const fail = (msg, kind) => { const e = new Error(msg + (reason ? ' — Google: ' + reason : '')); e.kind = kind; e.status = response.status; throw e; };
-            if (response.status === 429) fail('Natural voice free limit reached for now.', 'limit');
+            if (response.status === 429) {
+              // Google says how long to wait, e.g. "retry in 18h28m7s".
+              const m = /retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?/i.exec(reason) || [];
+              const wait = ((+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0)) * 1000;
+              const e = new Error(/per day/i.test(reason) ? 'The free Natural voice is used up for today.' : 'Natural voice free limit reached for now.');
+              e.kind = 'limit'; e.retryMs = wait || 120000; e.status = 429; throw e;
+            }
             if (response.status === 401 || response.status === 403 || /api key|api_key|permission|billing/i.test(reason)) fail('Check your Gemini key in Voice settings.', 'key');
             if (response.status === 404) fail('Natural voice is unavailable for this Gemini key.', 'key');
             if (response.status === 400) fail('Google could not voice this passage.', 'passage');
