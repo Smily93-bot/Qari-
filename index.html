@@ -640,6 +640,9 @@ setInterval(()=>{ if(playing)saveReadingPosition(); },3000);
 const naturalEngine = new QariNaturalVoice();
 const naturalAudio = new Audio();
 let naturalUrl = null, naturalRange = null, narrationToken = 0;
+// When the Natural voice fails, keep reading with the phone's voice instead of stopping.
+let deviceUntil = -1, naturalPausedUntil = 0, smallPassageAt = -1;
+function useDeviceNow() { return !!synth && (current < deviceUntil || Date.now() < naturalPausedUntil); }
 let narrationStarted = false;
 let previewAudio = null, previewUrl = null, previewToken = 0;
 let geminiVoiceKey = '';
@@ -688,6 +691,7 @@ function openVoiceSettings() {
   $('voiceDialog').showModal();
 }
 function applyVoiceKey() {
+  naturalPausedUntil = 0; deviceUntil = -1;
   const next = $('geminiVoiceKey').value.trim();
   if (next !== geminiVoiceKey) naturalEngine.clear();
   geminiVoiceKey = next;
@@ -730,7 +734,7 @@ $('saveVoiceBtn').onclick = () => {
 };
 $('deviceVoiceBtn').onclick = () => { resetNatural(); $('modeSel').value = 'device'; saveVoiceSetting('mode','device'); $('voiceDialog').close(); syncVoiceMode(); };
 $('forgetVoiceBtn').onclick = () => { stopPreview(); resetNatural(); naturalEngine.clear(); geminiVoiceKey = ''; saveVoiceSetting('key',''); $('geminiVoiceKey').value = ''; $('rememberVoiceKey').checked = false; $('previewStatus').textContent = 'Key removed from this device · تم حذف المفتاح'; };
-$('modeSel').onchange = () => { stopSpeech(); resetNatural(); saveVoiceSetting('mode',$('modeSel').value); syncVoiceMode(); };
+$('modeSel').onchange = () => { naturalPausedUntil = 0; deviceUntil = -1; stopSpeech(); resetNatural(); saveVoiceSetting('mode',$('modeSel').value); syncVoiceMode(); };
 syncVoiceMode();
 
 // ---------- helpers ----------
@@ -1402,7 +1406,7 @@ function speakCurrent() {
     }
     return;
   }
-  if (isNatural()) { speakNatural(); return; }
+  if (isNatural() && !useDeviceNow()) { speakNatural(); return; }
   if (!synth) { playing = false; updateUi(); showNoTtsHelp(); return; }
   const s = sentences[current];
   const token = narrationToken;
@@ -1444,13 +1448,13 @@ async function speakNatural() {
   const stopAt = Q.nextOfflineStart ? sentences[Q.nextOfflineStart(current)] : null;
   const canRead = s => !pageIsSkipped(s.pageState) && s !== stopAt && (!Q.passageLimit || Q.passageLimit(s));
   $('narrationStatus').textContent = 'Preparing narration… · جارٍ تجهيز المقطع';
+  let range, blob;
   try {
-    let range, blob;
     const saved = Q.offlineAudio ? await Q.offlineAudio(current) : null;
     if (token !== narrationToken || !playing || !isNatural()) return;
     if (saved) { range = {start: saved.start, end: saved.end, text: saved.text}; blob = saved.blob; }
     else {
-      range = QariNaturalVoice.passage(sentences, current, narrationStarted ? 1100 : 400, s => s === sentences[current] || canRead(s));
+      range = QariNaturalVoice.passage(sentences, current, smallPassageAt === current ? 300 : narrationStarted ? 1100 : 400, s => s === sentences[current] || canRead(s));
       blob = await naturalEngine.generate(range.text, geminiVoiceKey, $('narratorSel').value, voiceLanguage());
     }
     if (token !== narrationToken || !playing || !isNatural()) return;
@@ -1474,10 +1478,16 @@ async function speakNatural() {
       naturalEngine.generate(next.text, geminiVoiceKey, $('narratorSel').value, voiceLanguage()).catch(() => {});
     }
   } catch (error) {
-    if (token !== narrationToken) return;
-    stopSpeech(); resetNatural();
-    $('narrationStatus').textContent = error.message;
-    toast(error.message,6000);
+    if (token !== narrationToken || !playing) return;
+    resetNatural();
+    // 1) A refused passage: try once more with a shorter piece.
+    if (error.kind === 'passage' && smallPassageAt !== current) { smallPassageAt = current; speakNatural(); return; }
+    if (!synth) { stopSpeech(); $('narrationStatus').textContent = error.message; toast(error.message, 6000); return; }
+    // 2) Otherwise read on with the phone's voice, and come back to the Natural voice later.
+    if (error.kind === 'passage') deviceUntil = current + 1;   // just the refused sentence
+    else naturalPausedUntil = Date.now() + (error.kind === 'key' ? 864e5 : error.kind === 'limit' ? 120000 : 30000);
+    $('narrationStatus').textContent = (bookIsArabic ? 'نكمل بصوت الهاتف مؤقتاً — ' : 'Reading on with your phone\'s voice for now — ') + error.message;
+    speakCurrent();
   }
 }
 function finishNaturalRange(range) {
@@ -1517,7 +1527,7 @@ function stopSpeech() {
 }
 
 function jumpTo(i) {
-  resetNatural(); naturalEngine.cancelPending();
+  resetNatural(); naturalEngine.cancelPending(); deviceUntil = -1;
   current = Math.max(0, Math.min(i, sentences.length));
   waitingForPage = current >= sentences.length && $('ocrChip').style.display === 'flex';
   saveReadingPosition();

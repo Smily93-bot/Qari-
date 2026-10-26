@@ -14,6 +14,15 @@
     }
     // Builds one passage. When `canRead` is given, the passage may continue onto the
     // next page, so a sentence broken by a page turn is narrated in one breath.
+    static wav(pcm, rate) {
+      const out = new Uint8Array(44 + pcm.length), v = new DataView(out.buffer);
+      const w = (o, s) => { for (let i = 0; i < s.length; i++) out[o + i] = s.charCodeAt(i); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length, true); w(8, 'WAVEfmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      w(36, 'data'); v.setUint32(40, pcm.length, true); out.set(pcm, 44);
+      return out;
+    }
     static passage(sentences, start, limit = 1100, canRead = null) {
       let end = start, text = '';
       const page = sentences[start]?.pageNum;
@@ -52,17 +61,23 @@
             })
           });
           if (!response.ok) {
-            if (response.status === 429) throw new Error('Gemini usage limit reached. Wait a little and retry, or choose Device voice.');
-            if ([400, 401, 403].includes(response.status)) throw new Error('Check your Gemini key and its access to speech generation in Google AI Studio.');
-            if (response.status === 404) throw new Error('Natural voice is unavailable for this Gemini project. Check speech model access in Google AI Studio.');
-            throw new Error('Natural voice could not be generated. Please retry.');
+            // Keep Google's own reason, so problems can be told apart.
+            const body = await response.json().catch(() => null);
+            const reason = (body?.error?.message || '').slice(0, 160);
+            const fail = (msg, kind) => { const e = new Error(msg + (reason ? ' — Google: ' + reason : '')); e.kind = kind; e.status = response.status; throw e; };
+            if (response.status === 429) fail('Natural voice free limit reached for now.', 'limit');
+            if (response.status === 401 || response.status === 403 || /api key|api_key|permission|billing/i.test(reason)) fail('Check your Gemini key in Voice settings.', 'key');
+            if (response.status === 404) fail('Natural voice is unavailable for this Gemini key.', 'key');
+            if (response.status === 400) fail('Google could not voice this passage.', 'passage');
+            fail('Natural voice could not be generated.', 'server');
           }
           const data = await response.json();
           const audio = (data.steps || []).filter(s => s.type === 'model_output')
             .flatMap(s => s.content || []).filter(c => c.type === 'audio' && c.data).pop();
-          if (!audio) throw new Error('Gemini returned no audio. Please retry this passage.');
-          const bytes = Uint8Array.from(atob(audio.data), c => c.charCodeAt(0));
-          if (String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF') throw new Error('The voice returned an unsupported audio format. Please retry.');
+          if (!audio) { const e = new Error('Google returned no audio for this passage.'); e.kind = 'passage'; throw e; }
+          let bytes = Uint8Array.from(atob(audio.data), c => c.charCodeAt(0));
+          // Raw 24 kHz 16-bit mono PCM (no header): wrap it so the phone can play it.
+          if (String.fromCharCode(...bytes.slice(0, 4)) !== 'RIFF') bytes = NaturalVoice.wav(bytes, 24000);
           const blob = new Blob([bytes], {type: 'audio/wav'});
           if (epoch !== this.epoch) throw new DOMException('Cancelled', 'AbortError');
           this.cache.set(cacheKey, blob);
